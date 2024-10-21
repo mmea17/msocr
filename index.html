@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Web Processor</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.6.7/axios.min.js"></script>
+    <style>
+        /* RTL specific overrides */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            direction: rtl;
+            text-align: right;
+        }
+
+        .file-input-label {
+            text-align: center;
+        }
+
+        .results-textarea {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            direction: rtl;
+            text-align: right;
+            padding: 1rem;
+            font-size: 1.1rem;
+            line-height: 1.8;
+        }
+
+        /* Fix button icons direction */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .btn svg {
+            transform: scaleX(-1);
+        }
+
+        /* Status message RTL */
+        .status-message {
+            text-align: right;
+        }
+
+        /* Preview section RTL */
+        .preview-section {
+            direction: rtl;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>معالج النصوص الضوئي</h1>
+            <p>استخراج النص من الصور بشكل فوري</p>
+        </header>
+        
+        <div class="upload-section">
+            <label class="label">رفع الصور</label>
+            <div class="file-input-wrapper">
+                <label class="file-input-label" for="imageInput">
+                    <span>اسحب الملفات هنا أو انقر للرفع</span>
+                </label>
+                <input 
+                    type="file" 
+                    id="imageInput" 
+                    class="file-input"
+                    multiple 
+                    accept="image/*"
+                >
+            </div>
+        </div>
+
+        <div id="imagePreview" class="preview-section"></div>
+
+        <div class="progress" style="display: none;">
+            <div class="progress-bar" style="width: 0%"></div>
+        </div>
+
+        <button 
+            id="processBtn"
+            class="btn btn-primary"
+            disabled
+        >
+            معالجة الصور
+        </button>
+
+        <div class="results-section">
+            <label class="label">النص المستخرج</label>
+            <textarea 
+                id="resultText"
+                class="results-textarea"
+                readonly
+                dir="rtl"
+                lang="ar"
+                placeholder="سيظهر النص المستخرج هنا..."
+            ></textarea>
+
+            <button 
+                id="downloadBtn"
+                class="btn btn-secondary"
+                disabled
+            >
+                تحميل كملف نصي
+            </button>
+        </div>
+
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
+    </div>
+
+    <script>
+        const subscriptionKey = '5b4bcbf2dc1c4e5fa0a21b31649344a8';
+        const endpoint = 'https://bookmmea.cognitiveservices.azure.com/';
+        
+        let selectedFiles = [];
+        const imageInput = document.getElementById('imageInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const processBtn = document.getElementById('processBtn');
+        const resultText = document.getElementById('resultText');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const progressBar = document.querySelector('.progress');
+        const progressBarInner = document.querySelector('.progress-bar');
+        const statusMessage = document.getElementById('statusMessage');
+
+        // Handle file selection
+        imageInput.addEventListener('change', (e) => {
+            selectedFiles = Array.from(e.target.files);
+            processBtn.disabled = selectedFiles.length === 0;
+            updateImagePreview();
+        });
+
+        // Update image preview
+        function updateImagePreview() {
+            imagePreview.innerHTML = '';
+            selectedFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.className = 'preview-image';
+                    imagePreview.appendChild(img);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Show status message
+        function showStatus(message, type = 'success') {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message status-${type}`;
+            statusMessage.style.display = 'block';
+            setTimeout(() => {
+                statusMessage.style.display = 'none';
+            }, 5000);
+        }
+
+        // Process images
+        processBtn.addEventListener('click', async () => {
+            processBtn.disabled = true;
+            resultText.value = 'جاري المعالجة...';
+            progressBar.style.display = 'block';
+            let allText = [];
+
+            try {
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const file = selectedFiles[i];
+                    const text = await processImage(file);
+                    allText.push(`الملف: ${file.name}\n${text}\n`);
+                    
+                    const progress = ((i + 1) / selectedFiles.length) * 100;
+                    progressBarInner.style.width = `${progress}%`;
+                }
+                
+                resultText.value = allText.join('\n');
+                downloadBtn.disabled = false;
+                showStatus('تمت المعالجة بنجاح!');
+            } catch (error) {
+                showStatus(`خطأ: ${error.message}`, 'error');
+                resultText.value = `خطأ: ${error.message}`;
+            } finally {
+                processBtn.disabled = false;
+                progressBar.style.display = 'none';
+                progressBarInner.style.width = '0%';
+            }
+        });
+
+        // Process single image
+        async function processImage(file) {
+            try {
+                const response = await axios.post(
+                    `${endpoint}vision/v3.1/read/analyze`,
+                    file,
+                    {
+                        headers: {
+                            'Content-Type': file.type,
+                            'Ocp-Apim-Subscription-Key': subscriptionKey,
+                            // Add language detection and RTL support
+                            'Accept-Language': 'ar,en'
+                        },
+                        params: {
+                            'language': 'ar,en',
+                            'detectOrientation': 'true'
+                        }
+                    }
+                );
+
+                const operationLocation = response.headers['operation-location'];
+
+                while (true) {
+                    const result = await axios.get(
+                        operationLocation,
+                        {
+                            headers: {
+                                'Ocp-Apim-Subscription-Key': subscriptionKey
+                            }
+                        }
+                    );
+
+                    if (result.data.status === 'succeeded') {
+                        return result.data.analyzeResult.readResults
+                            .flatMap(page => page.lines)
+                            .map(line => line.text)
+                            .join('\n');
+                    }
+
+                    if (result.data.status === 'failed') {
+                        throw new Error('فشلت عملية معالجة النص');
+                    }
+
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            } catch (error) {
+                throw new Error(`فشلت معالجة ${file.name}: ${error.message}`);
+            }
+        }
+
+        // Handle download with proper encoding
+        downloadBtn.addEventListener('click', () => {
+            // Add BOM for proper UTF-8 encoding
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const text = resultText.value;
+            const blob = new Blob([bom, text], { 
+                type: 'text/plain;charset=utf-8' 
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'ocr-results.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // Drag and drop support
+        const dropZone = document.querySelector('.file-input-label');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('file-input-label-dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('file-input-label-dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('file-input-label-dragover');
+            const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+            if (files.length > 0) {
+                imageInput.files = e.dataTransfer.files;
+                selectedFiles = files;
+                processBtn.disabled = false;
+                updateImagePreview();
+            }
+        });
+    </script>
+</body>
+</html>
